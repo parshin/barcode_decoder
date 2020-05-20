@@ -5,6 +5,7 @@ import requests
 import json
 import sys
 import os
+import glob
 from os import listdir
 from os.path import isfile, join
 from pdf2image import convert_from_path
@@ -12,6 +13,7 @@ from conf import files_dir
 from conf import addresses
 from pyzbar.pyzbar import decode
 from PIL import Image
+from PIL import ImageEnhance
 from base64 import b64encode
 
 
@@ -33,6 +35,18 @@ def check_access():
     return True
 
 
+def enhance_img(jpg_file):
+    image = Image.open(jpg_file)
+
+    image = ImageEnhance.Contrast(image)
+    image = image.enhance(2)
+
+    image = ImageEnhance.Sharpness(image)
+    image = image.enhance(1)
+
+    image.save(jpg_file)
+
+
 if __name__ == "__main__":
 
     start_time = time.time()
@@ -45,9 +59,9 @@ if __name__ == "__main__":
     if not check_access():
         raise SystemExit(0)
 
-    # pdf_file_list = glob.glob(files_dir["sales"]+"*.pdf")
     path = files_dir["sales"]
-    pdf_file_list = [f for f in listdir(path) if isfile(join(path, f))]
+    # pdf_file_list = glob.glob(path+"*.pdf")
+    pdf_file_list = [f for f in listdir(path) if isfile(join(path, f)) and f.endswith('pdf')]
     total_files = len(pdf_file_list)
     logging.info('total files: ' + str(total_files))
     recognized_files = 0
@@ -69,16 +83,21 @@ if __name__ == "__main__":
 
         # no barcode data - move source pdf and delete temporary jpeg
         if not detected_barcodes:
-            logging.error("barcode was n't recognized: " + pdf_file)
-            try:
-                os.rename(path+pdf_file, files_dir['unrecognized']+pdf_file)
-                os.remove(jpg_file[0])
-            except IOError:
-                err_type, value, traceback = sys.exc_info()
-                logging.error('error moving pdf file ' + pdf_file + " to " + files_dir['unrecognized'])
-                logging.error('error detail:' + value.strerror)
+            # trying to enhance image
+            enhance_img(jpg_file[0])
+            detected_barcodes = decode(Image.open(jpg_file[0]))
+            if not detected_barcodes:
+                logging.error("barcode was n't recognized: " + pdf_file)
+                try:
+                    logging.info("moving " + path + pdf_file + " to " + files_dir['unrecognized'] + pdf_file)
+                    os.rename(path+pdf_file, files_dir['unrecognized']+pdf_file)
+                    os.remove(jpg_file[0])
+                except IOError:
+                    err_type, value, traceback = sys.exc_info()
+                    logging.error('error moving pdf file ' + pdf_file + " to " + files_dir['unrecognized'])
+                    logging.error('error detail:' + value.strerror)
 
-            continue
+                continue
 
         try:
             os.remove(jpg_file[0])
